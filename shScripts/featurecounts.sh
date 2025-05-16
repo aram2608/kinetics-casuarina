@@ -17,7 +17,7 @@ fi
 mkdir -p $output_dir
 
 # params for featurecounts run
-featureCounts -s 2 \
+featureCounts -s 0 \
     -T 8 \
     -t exon \
     -g gene_id \
@@ -28,10 +28,12 @@ featureCounts -s 2 \
 echo "Finished calculating counts"
 
 # params for feature counts
-# exon counts only coding sequences
-# -s tells you strandness of rna, 2 is reverse
+# -t is the feautre, exon counts only coding sequences
+# -s tells you strandess of rna library, 0 is for unstranded
+# options are, 0 unstranded, 1 stranded, 2 reverse stranded
 # -a is for annotation files, GTF
 # -g is extremely important, it collapses isoforms to prevent watering down of analysis
 # -o is for output
 # -T is for adding threads
+# -O, allows the usage of multi-mapping reads
 # the input bam file is postional
