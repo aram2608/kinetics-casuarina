@@ -2,6 +2,9 @@
 
 protein_dir=$1 # input to directory
 
+# activate our env
+source activate busco.5.8.2
+
 # safety check to make sure args are met
 if [ -z "$protein_dir" ]; then
     echo "Usage: <protein_directory>"

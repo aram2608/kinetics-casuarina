@@ -2,6 +2,9 @@
 
 date #print start time
 
+# activate our env
+source activate hisat-samtools
+
 bam_dir=$1 #input directory
 output_dir=$2 #output directory
 merged_name="merged_all.bam" #outputname

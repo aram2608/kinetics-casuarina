@@ -5,6 +5,9 @@ date
 input_directory=$1 #provide path to input directory
 output_directory=$2 #provide path to output_directory
 
+# activate our conda env
+source activate genomics
+
 #an added safety test to make sure both inputs provided
 if [ -z "$input_directory" ] || [ -z "$output_directory" ]; then
     echo "Usage: $0 <input_directory> <output_directory>"

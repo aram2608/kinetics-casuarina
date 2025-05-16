@@ -5,6 +5,9 @@ trimmed_fastq_directory=$1
 input_index_hisat2=$2
 output_BAM_directory=$3
 
+# activate our conda env, need both hisat and samtools
+source activate hisat-samtools
+
 #safety feature to ensure all inputs are included
 if [ -z $trimmed_fastq_directory ] || [ -z $input_index_hisat2 ] || [ -z $output_BAM_directory ]; then
     echo "Usage: ./hisat2sam.sh <trimmed_fastq_directory> <input_index_directory/index <sorted_BAM_directory>"

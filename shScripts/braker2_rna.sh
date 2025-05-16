@@ -2,6 +2,9 @@
 
 date  #script start time
 
+# activate our env
+source activate braker-gmes
+
 merged_bam="$1"         #full path to merged BAM file
 genome="$2"             #path to genome FASTA
 output_directory="$3"   #output directory

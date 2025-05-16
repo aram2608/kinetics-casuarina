@@ -9,6 +9,9 @@ date # print script start time
 protein_seqs=$1
 annotations=$2
 
+# activate our conda env
+source activate eggnog
+
 # safety check for arguments
 if [ -z "$protein_seqs" ] || [ -z $annotations ]; then
     echo "Usage: <protein_sequences> <ouput_file_name>"
