@@ -8,7 +8,7 @@ output_dir=$3 # output directory for count matrix
 source activate subread
 
 # safety check for input file
-if [ -z "$input_bams_dir" ] || [ ! -d "$input_bams_dir" ] || [ ! -f "$annotation_file" ]; then
+if [ -z "$input_bams_dir" ] || [ ! -f "$annotation_file" ] || [ -z "$output_dir" ]; then
     echo "Usage: <input_bam_txt_directory <gtf_file>"
     exit 1
 fi

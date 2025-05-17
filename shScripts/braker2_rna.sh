@@ -33,7 +33,7 @@ braker.pl \
     --species=casuarina_glauca_rna \
     --genome="$genome" \
     --bam="$merged_bam" \
-    --stranded=- \
+    --stranded=. \
     --softmasking \
     --workingdir="$output_directory" \
     --gff3 \
@@ -45,4 +45,4 @@ date  #time to finish script
 
 #added strandness flag
 #added gff3 for evm
-#--stranded=- for reverse
+#--stranded=. for unstranded
