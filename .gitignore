@@ -172,3 +172,13 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+.Rproj.user
+
+# R stuff
+.RData
+.Rhistory
+kinetics-casuarina.Rproj
+.python-version
+kinetics_count_matrix.txt
+old_annotations.txt
+dups_removed.tsv

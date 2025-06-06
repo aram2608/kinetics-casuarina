@@ -1,0 +1,522 @@
+---
+title: "Kinetics Analysis"
+author: "Javier Arambula Rascon"
+date: "2025-05-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document.
+
+```{r}
+# Downloading neccessary libraries
+# install bioconductor packages
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+if (!requireNamespace("DESeq2", quietly = TRUE))
+  BiocManager::install("DESeq2")
+if (!requireNamespace("topGO", quietly = TRUE))
+  BiocManager::install("topGO")
+if (!requireNamespace("clusterProfiler", quietly = TRUE))
+  BiocManager::install("clusterProfiler")
+if (!requireNamespace("KEGGREST", quietly = TRUE))
+  BiocManager::install("KEGGREST")
+# install CRAN packages
+if (!requireNamespace("ggVennDiagram", quietly = TRUE))
+  install.packages("ggVennDiagram")
+if (!requireNamespace("ggplot2", quietly = TRUE))
+  install.packages("ggplot2")
+if (!requireNamespace("dplyr", quietly = TRUE))
+  install.packages("dplyr")
+if (!requireNamespace("pheatmap", quietly = TRUE))
+  install.packages("pheatmap")
+if (!requireNamespace("tidyr", quietly = TRUE))
+  install.packages("tidyr")
+if (!requireNamespace("enrichplot", quietly = TRUE))
+  install.packages("enrichplot")
+if (!requireNamespace("ggrepel", quietly = TRUE))
+  install.packages("ggrepel")
+if (requireNamespace("progress", quietly = ))
+  install.packages("progress")
+```
+
+```{r, echo=FALSE,message=FALSE}
+# load libraries
+library("DESeq2")
+library("ggplot2")
+library("ggVennDiagram")
+library("dplyr")
+library("pheatmap")
+library("topGO")
+library("clusterProfiler")
+library("tidyr")
+library("enrichplot")
+library("topGO")
+library("ggrepel")
+library("KEGGREST")
+library("progress")
+```
+
+# Loading in Counts matrix
+
+```{r}
+raw_data <- read.delim("kinetics_count_matrix.txt", sep = "\t", header = TRUE)
+cleaned_data <- raw_data[-c(2,3,4,5,6)]
+
+# creating final counts matrix with row names
+counts <- cleaned_data[, -1] # removes first column
+rownames(counts) <- cleaned_data[, 1] # sets row names using first column
+```
+
+# Creating Column Data
+
+```{r}
+coldata <- data.frame(
+  ID = colnames(counts), # extracts our column names for ID column
+  Treatment = c(
+    "Nodule",
+    "Nodule",
+    "Nodule",
+    "Fourteen",
+    "Fourteen",
+    "Fourteen",
+    "Twentyone",
+    "Twentyone",
+    "Twentyone",
+    "24hour",
+    "24hour",
+    "24hour",
+    "48hour",
+    "48hour",
+    "48hour",
+    "Four",
+    "Four",
+    "Four",
+    "Seven",
+    "Seven",
+    "Seven",
+    "control",
+    "control",
+    "control"
+  ),
+  stringsAsFactors = FALSE
+)
+
+rownames(coldata) <- coldata[,1]
+```
+
+# Running DESeq2
+
+```{r}
+# creating our base deseq data set
+dds <- DESeqDataSetFromMatrix(countData = counts,
+                              colData = coldata,
+                              design = ~ Treatment)
+# setting the reference level to make comparisons
+dds$Treatment <- relevel(dds$Treatment, ref = "control")
+
+# running DEseq on our matrix
+dds <- DESeq(dds)
+
+# making our results dataframe
+res <- results(dds)
+```
+# sanity check to make sure everything is kosher
+
+```{r}
+# prints results
+res
+
+# prints summary of results
+summary(res)
+
+# prints pairwise comparisons,useful double check
+resultsNames(dds)
+```
+# PCA to guage variance and if samples are similar
+
+```{r}
+# making an output directory
+dir.create("DEG_results", showWarnings = FALSE)
+
+# VST transformation
+vsd <- vst(dds, blind = TRUE)
+pca_data <- plotPCA(vsd, intgroup = c("Treatment"), returnData = TRUE)
+percent_var <- round(100 * attr(pca_data, "percentVar"))
+
+# PCA plotting using ggplot2
+pca <- ggplot(pca_data, aes(PC1, PC2, color = Treatment)) +
+  geom_point(size = 3, alpha = 0.8) +
+  xlab(paste0("PC1: ", percent_var[1], "% variance")) +
+  ylab(paste0("PC2: ", percent_var[2], "% variance")) +
+  coord_fixed() +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal(base_size = 14) +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(face = "bold"),
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    panel.grid.major = element_line(color = "gray90"),
+    panel.grid.minor = element_blank()
+  )
+
+# save plot as a png
+ggsave("DEG_results/pca_plot.png", plot = pca, width = 6, height = 6, dpi = 300)
+
+# print to r markdown
+pca
+```
+
+# Venn Diagram
+
+There are a lot of comparisons so lets hope and pray this does not look bizarre
+
+```{r}
+# list to store genes
+comparisons <- resultsNames(dds)[-1] # removes the first weird column
+all_degs <- list()
+
+# loop through pair-wise comparison
+for (comp in comparisons) {
+  res <- results(dds, name = comp) #saves results for each comparison
+  sig <- res[which(res$padj < 0.05 & !is.na(res$padj)), ] # filter for p and NA
+
+  all <- rownames(sig[abs(sig$log2FoldChange) > 1.5, ]) # filter for up-reg 1.5
+
+  all_degs[[comp]] <- all # compile up-reg genes
+}
+
+# todos los genes arriba y abajo
+all_venn <- ggVennDiagram(all_degs, label_alpha = 0, edge_size = 0.5,
+                          label = "count",
+                          label_size = 5
+                          ) +
+  scale_fill_distiller(palette = "Spectral") +
+  labs(title = "All Differentially Expressed Genes") +
+  theme(text = element_text(size = 10),
+        plot.title = element_text(size = 14, hjust = 0.5, face = "bold"))
+
+# fixes the long labels
+fixed_venn <- all_venn + scale_x_continuous(expand = expansion(mult = 0.2))
+
+ggsave("DEG_results/all_DEGs_venn.png",
+       plot = fixed_venn, width = 8, height = 6, dpi = 300)
+# plot to markdown
+fixed_venn
+```
+# Pairwise comparison extraction
+
+```{r}
+# run the following to find out the resultsNames
+#resultsNames(dds)
+
+# extracting results names
+h24_control <- resultsNames(dds)[c(2)] # the last time I did this I used a pretty brutish method
+h48_control <- resultsNames(dds)[c(3)]
+four_control <- resultsNames(dds)[c(4)]
+seven_control <- resultsNames(dds)[c(7)]
+fourteen_control <- resultsNames(dds)[c(5)]
+twentyone_control <- resultsNames(dds)[c(8)]
+nodule_control <- resultsNames(dds)[c(6)]
+
+# now we need to save results as a dataframe
+res24hvc <- results(dds, name = h24_control)
+res48hvc <- results(dds, name = h48_control)
+res4dvc <- results(dds, name = four_control)
+res7dvc <- results(dds, name = seven_control)
+res14dvc <- results(dds, name = fourteen_control)
+res21dvc <- results(dds, name = twentyone_control)
+resnodvc <- results(dds, name = nodule_control)
+
+#filter the data for NA values
+res24hvc_df <- as.data.frame(res24hvc) %>% # pipe operator, the same as | foo | in bash
+  filter(!is.na(log2FoldChange), !is.na(padj))
+
+res48hvc_df <- as.data.frame(res48hvc) %>%
+  filter(!is.na(log2FoldChange), !is.na(padj))
+
+res4dvc_df <- as.data.frame(res4dvc) %>%
+  filter(!is.na(log2FoldChange), !is.na(padj))
+
+res7dvc_df <- as.data.frame(res7dvc) %>%
+  filter(!is.na(log2FoldChange), !is.na(padj))
+
+res14dvc_df <- as.data.frame(res14dvc) %>%
+  filter(!is.na(log2FoldChange), !is.na(padj))
+
+res21dvc_df <- as.data.frame(res21dvc) %>%
+  filter(!is.na(log2FoldChange), !is.na(padj))
+
+resnodvc_df <- as.data.frame(resnodvc) %>%
+  filter(!is.na(log2FoldChange), !is.na(padj))
+```
+
+# A little function to help with formatting hopefully
+
+```{r}
+formatting_func <- function(df, padj_cutoff = 0.05, lfc_cutoff = 1.5) {
+  df$diffexpress <- "NO"
+  df$diffexpress[df$padj < padj_cutoff & df$log2FoldChange > lfc_cutoff] <- "UP"
+  df$diffexpress[df$padj < padj_cutoff & df$log2FoldChange < -lfc_cutoff] <- "DOWN"
+  return(df)
+}
+```
+
+# Hopefully this works nicely
+
+```{r}
+res24hvc_df <- formatting_func(res24hvc_df)
+res48hvc_df <- formatting_func(res48hvc_df)
+res4dvc_df <- formatting_func(res4dvc_df)
+res7dvc_df <- formatting_func(res7dvc_df)
+res14dvc_df <- formatting_func(res14dvc_df)
+res21dvc_df <- formatting_func(res21dvc_df)
+resnodvc_df <- formatting_func(resnodvc_df)
+```
+
+# Volcano plot function
+
+```{r}
+volcano_plotter <- function(df, title) {
+  volc_plot <- ggplot(data = df, 
+                      aes(x = log2FoldChange, 
+                          y = -log10(padj), 
+                          col = diffexpress)) +
+    geom_vline(xintercept = c(-1.5, 1.5), col = "gray", linetype = "dashed") +
+    geom_hline(yintercept = -log10(0.05), col = "gray", linetype = "dashed") +
+    geom_point(size = 2) +
+    scale_color_manual(values = c("blue","grey","red"),
+                       labels = c("Downregulated", "Not significant", "Upregulated")) +
+    coord_cartesian(ylim = c(0, 40), xlim = c(-10, 10)) +
+    labs(color = "Legend", 
+       x = expression("log"[2]*"FC"), 
+       y = expression("-log"[10]*"Adjusted p-value")) +
+  ggtitle(title)
+  return(volc_plot)
+}
+```
+
+
+# Volcano plots
+
+```{r}
+volc_24hvc <- volcano_plotter(res24hvc_df, "24 Hours vs. Control")
+volc_48vc <- volcano_plotter(res48hvc_df, "48 Hours vs. Control")
+volc_4vc <- volcano_plotter(res4dvc_df, "4 Days vs. Control")
+volc_7vc <- volcano_plotter(res7dvc_df, "7 Days vs. Control")
+volc_14vc <- volcano_plotter(res14dvc_df, "14 Days vs. Control")
+volc_21vc <- volcano_plotter(res21dvc_df, "21 Days vs. Control")
+volc_nvc <- volcano_plotter(resnodvc_df, "Nodules vs. Control")
+```
+
+# Volc Plots
+
+```{r}
+volc_24hvc
+volc_48vc
+volc_4vc
+volc_7vc
+volc_14vc
+volc_21vc
+volc_nvc
+```
+
+# Load in annotations
+
+```{r}
+annotation_data <- read.delim("dups_removed.tsv", sep = "\t")
+```
+
+# Creating a column for GENE-ids
+
+```{r}
+res7v4_df$gene_ids <- rownames(res7v4_df)
+res14v4_df$gene_ids <- rownames(res14v4_df)
+res21v4_df$gene_ids <- rownames(res21v4_df)
+resNv4_df$gene_ids <- rownames(resNv4_df)
+```
+
+
+# Creating GO term universe
+
+```{r}
+# extracting goterms from eggnog mapper annotations
+go_terms <- annotation_data[c(1,10)]
+go_terms <- go_terms[go_terms$GOs != "-",]
+
+# exporting out go terms to create mappings
+write.table(go_terms, file = "go_terms.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
+
+# importing back in as gene2gomappings
+gene2goMappings <- readMappings(file = "go_terms.tsv", sep = "\t", IDsep = ",")
+```
+
+# Merging GO terms to DEGs
+
+```{r}
+Nv4_go <- merge(resNv4_df, go_terms[,c("query", "GOs")], by.x = "gene_ids", by.y = "query", all.x = TRUE)
+
+# Filtering for non GO terms hits
+Nv4_go <- Nv4_go[!is.na(Nv4_go$GOs),]
+
+# extract top genes by fold change
+Nv4_go <- Nv4_go %>%
+  filter(abs(log2FoldChange) > 1.5)
+```
+
+# Extracting gene_ids and creating custom mappings for topGO
+
+```{r}
+Nv4_padj <- dplyr::select(Nv4_go, gene_ids,padj)
+
+# sorting by pvalue, topGO requires this
+sorted_Nv4 <- Nv4_go[order(Nv4_go$padj),]
+
+# converting to topGO gene list format
+top_Nv4 <- sorted_Nv4$padj
+
+# naming vectors
+names(top_Nv4) <- sorted_Nv4$gene_ids
+```
+
+# Analysis parameters
+
+```{r}
+# pval cuttoff
+cuttof_padj <- 0.05
+
+# filtering function
+topgo_filter <- function(x) {
+  return(x <= cuttof_padj)
+}
+```
+
+# Creating go data objects
+
+```{r, echo=FALSE,message=FALSE}
+# molecular function
+Nv4_go_mf <- new(
+  "topGOdata",
+  ontology = "MF", # molecular function
+  allGenes = top_Nv4, # the named vector we created
+  annot = annFUN.gene2GO, # this is the annotation function used by topGO
+  geneSel = topgo_filter, # the filtering function we defined
+  gene2GO = gene2goMappings # custom mapping we made
+)
+# biological process
+Nv4_go_bp <- new(
+  "topGOdata",
+  ontology = "BP",
+  allGenes = top_Nv4,
+  annot = annFUN.gene2GO,
+  geneSel = topgo_filter,
+  gene2GO = gene2goMappings
+)
+# cellular component
+Nv4_go_cc <- new(
+  "topGOdata",
+  ontology = "CC",
+  allGenes = top_Nv4,
+  annot = annFUN.gene2GO,
+  geneSel = topgo_filter,
+  gene2GO = gene2goMappings
+)
+```
+
+# Running enrichment tests
+
+```{r, message=FALSE, echo=FALSE}
+fisher_Nv4_mf <- runTest(Nv4_go_mf, algorithm = "elim", statistic = "fisher")
+fisher_Nv4_bp <- runTest(Nv4_go_bp, algorithm = "elim", statistic = "fisher")
+fisher_Nv4_cc <- runTest(Nv4_go_cc, algorithm = "elim", statistic = "fisher")
+
+elimks_Nv4_mf <- runTest(Nv4_go_mf, algorithm = "elim", statistic = "ks")
+elimks_Nv4_bp <- runTest(Nv4_go_bp, algorithm = "elim", statistic = "ks")
+elimks_Nv4_cc <- runTest(Nv4_go_cc, algorithm = "elim", statistic = "ks")
+```
+
+# Generating tables for plotting
+
+```{r}
+# Function to generate a nicely formatted enrichment table
+get_enrich_table <- function(go_obj, fisher_result, ks_results, top_n = 10, total_genes = NULL) {
+  tab <- GenTable(go_obj,
+                  classicFisher = fisher_result,
+                  elimKS = ks_results,
+                  orderBy = "classicFisher", # orders results by sig p-values
+                  ranksOf = "classicFisher",
+                  topNodes = top_n) %>%
+    mutate(
+      pvalue = as.numeric(classicFisher),
+      Term = factor(Term, levels = rev(Term)),
+      Count = as.numeric(Significant),
+      GeneRatio = if (!is.null(total_genes)) Count / total_genes else NA_real_
+    ) %>%
+    select(Term, Count, GeneRatio, pvalue, everything()) %>%
+    arrange(pvalue)
+
+  return(tab)
+}
+```
+
+# Tables
+
+```{r}
+tab_Nv4_mf <- get_enrich_table(Nv4_go_mf, fisher_Nv4_mf, elimks_Nv4_mf)
+tab_Nv4_bp <- get_enrich_table(Nv4_go_bp, fisher_Nv4_bp, elimks_Nv4_bp)
+tab_Nv4_cc <- get_enrich_table(Nv4_go_cc, fisher_Nv4_cc, elimks_Nv4_cc)
+```
+
+# Plotting function
+
+```{r}
+# plotting function
+plot_enrich_bar <- function(enrich_tab, title) {
+  enrich_tab <- enrich_tab %>%
+    mutate(
+      Term = factor(Term, levels = rev(unique(Term))),  # keep in plotted order
+      Count = as.numeric(Count),
+      pvalue = as.numeric(pvalue)
+    ) %>%
+    filter(pvalue < 0.05) %>% # filters out non-significant genes
+    arrange(pvalue) # arranges bars by p-value
+
+  ggplot(enrich_tab, aes(x = Count, y = Term, fill = pvalue)) +
+    geom_bar(stat = "identity") +
+    scale_fill_gradient(low = "red", high = "blue", name = "p.adjust") +
+    labs(
+      title = title,
+      x = "Gene Count",
+      y = NULL
+    ) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      axis.text.y = element_text(size = 10),
+      axis.title.x = element_text(size = 12),
+      legend.title = element_text(size = 10),
+      legend.text = element_text(size = 9)
+    )
+}
+```
+
+# Go term plots
+
+```{r}
+mf_Nv4 <- plot_enrich_bar(tab_Nv4_mf, "Nods MF")
+bp_Nv4 <- plot_enrich_bar(tab_Nv4_bp, "Nods Bp")
+cc_Nv4 <- plot_enrich_bar(tab_Nv4_cc, "Nods Cc")
+
+mf_Nv4
+bp_Nv4
+cc_Nv4
+```
+
