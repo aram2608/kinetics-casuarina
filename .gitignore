@@ -182,3 +182,11 @@ kinetics-casuarina.Rproj
 kinetics_count_matrix.txt
 old_annotations.txt
 dups_removed.tsv
+go_terms.tsv
+term2gene_GO.tsv
+term2name_GO.tsv
+old_diamond_hits.txt
+go.obo
+diamond_dups_removed.tsv
+diamond_dups_removed.txt
+header.txt

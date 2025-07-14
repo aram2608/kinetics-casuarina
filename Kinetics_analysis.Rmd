@@ -45,6 +45,10 @@ if (!requireNamespace("ggrepel", quietly = TRUE))
   install.packages("ggrepel")
 if (requireNamespace("progress", quietly = ))
   install.packages("progress")
+if (requireNamespace("ontologyIndex", quietly = TRUE))
+  install.packages("ontologyIndex")
+if (requireNamespace("readr", quietly = TRUE))
+  install.packages("readr")
 ```
 
 ```{r, echo=FALSE,message=FALSE}
@@ -62,6 +66,8 @@ library("topGO")
 library("ggrepel")
 library("KEGGREST")
 library("progress")
+library("ontologyIndex")
+library("readr")
 ```
 
 # Loading in Counts matrix
@@ -335,13 +341,30 @@ volc_nvc
 annotation_data <- read.delim("dups_removed.tsv", sep = "\t")
 ```
 
-# Creating a column for GENE-ids
+# Function to extract rownames and assign a column called Gene Ids
 
 ```{r}
-res7v4_df$gene_ids <- rownames(res7v4_df)
-res14v4_df$gene_ids <- rownames(res14v4_df)
-res21v4_df$gene_ids <- rownames(res21v4_df)
-resNv4_df$gene_ids <- rownames(resNv4_df)
+gene_id_grabber <- function(df) {
+  df$gene_ids <- rownames(df)
+  return(df)
+}
+
+#res7v4_df$gene_ids <- rownames(res7v4_df)
+#res14v4_df$gene_ids <- rownames(res14v4_df)
+#res21v4_df$gene_ids <- rownames(res21v4_df)
+#resNv4_df$gene_ids <- rownames(resNv4_df)
+```
+
+# Creating a column for Gene Ids
+
+```{r}
+res24hvc_df <- gene_id_grabber(res24hvc_df)
+res48hvc_df <- gene_id_grabber(res48hvc_df)
+res4dvc_df <- gene_id_grabber(res4dvc_df)
+res7dvc_df <- gene_id_grabber(res7dvc_df)
+res14dvc_df <- gene_id_grabber(res14dvc_df)
+res21dvc_df <- gene_id_grabber(res21dvc_df)
+resnodvc_df <- gene_id_grabber(resnodvc_df)
 ```
 
 
@@ -350,7 +373,7 @@ resNv4_df$gene_ids <- rownames(resNv4_df)
 ```{r}
 # extracting goterms from eggnog mapper annotations
 go_terms <- annotation_data[c(1,10)]
-go_terms <- go_terms[go_terms$GOs != "-",]
+go_terms <- go_terms[go_terms$GOs != "-",] # removes terms with no hit
 
 # exporting out go terms to create mappings
 write.table(go_terms, file = "go_terms.tsv", sep = "\t", quote = FALSE, row.names = FALSE)
@@ -359,32 +382,52 @@ write.table(go_terms, file = "go_terms.tsv", sep = "\t", quote = FALSE, row.name
 gene2goMappings <- readMappings(file = "go_terms.tsv", sep = "\t", IDsep = ",")
 ```
 
+# Function to merge GO terms to DEGs
+
+```{r}
+go_add <- function(df, go_terms) {
+  df <- merge(df, go_terms[,c("query", "GOs")], by.x = "gene_ids", by.y = "query", all.x = TRUE)
+  df <- df[!is.na(df$GOs),] # filter out terms that have no GO term
+  df <- df %>%
+    filter(abs(log2FoldChange) > 1.5) # filter by FoldChange both upregulated and downregulated
+  return(df)
+}
+```
+
 # Merging GO terms to DEGs
 
 ```{r}
-Nv4_go <- merge(resNv4_df, go_terms[,c("query", "GOs")], by.x = "gene_ids", by.y = "query", all.x = TRUE)
-
-# Filtering for non GO terms hits
-Nv4_go <- Nv4_go[!is.na(Nv4_go$GOs),]
-
-# extract top genes by fold change
-Nv4_go <- Nv4_go %>%
-  filter(abs(log2FoldChange) > 1.5)
+go_24hvc <- go_add(res24hvc_df, go_terms)
+go_48hvc <- go_add(res48hvc_df, go_terms)
+go_4vc <- go_add(res4dvc_df, go_terms)
+go_7vc <- go_add(res7dvc_df, go_terms)
+go_14vc <- go_add(res14dvc_df, go_terms)
+go_21vc <- go_add(res21dvc_df, go_terms)
+go_nodvc <- go_add(resnodvc_df, go_terms)
 ```
 
-# Extracting gene_ids and creating custom mappings for topGO
+# Function for extracting gene_ids and creating custom mappings for topGO
 
 ```{r}
-Nv4_padj <- dplyr::select(Nv4_go, gene_ids,padj)
+go_filter_func <- function(df) {
+  filtered_df <- dplyr::select(df, gene_ids,padj) # selects columns of interest
+  sorted_df <- filtered_df[order(filtered_df$padj),] # sorts by adjusted p value
+  top_df <- sorted_df$padj # creates a vector? with the padj values
+  names(top_df) <- sorted_df$gene_ids # assigns names to the padj values
+  return(top_df)
+}
+```
 
-# sorting by pvalue, topGO requires this
-sorted_Nv4 <- Nv4_go[order(Nv4_go$padj),]
+# Creating GO mappings
 
-# converting to topGO gene list format
-top_Nv4 <- sorted_Nv4$padj
-
-# naming vectors
-names(top_Nv4) <- sorted_Nv4$gene_ids
+```{r}
+top_24hvc <- go_filter_func(go_24hvc)
+top_48hvc <- go_filter_func(go_48hvc)
+top_4vc <- go_filter_func(go_4vc)
+top_7vc <- go_filter_func(go_7vc)
+top_14vc <- go_filter_func(go_14vc)
+top_21vc <- go_filter_func(go_21vc)
+top_nodvc <- go_filter_func(go_nodvc)
 ```
 
 # Analysis parameters
@@ -399,58 +442,62 @@ topgo_filter <- function(x) {
 }
 ```
 
-# Creating go data objects
+# Functions to create go data objects
 
 ```{r, echo=FALSE,message=FALSE}
-# molecular function
-Nv4_go_mf <- new(
-  "topGOdata",
-  ontology = "MF", # molecular function
-  allGenes = top_Nv4, # the named vector we created
-  annot = annFUN.gene2GO, # this is the annotation function used by topGO
-  geneSel = topgo_filter, # the filtering function we defined
-  gene2GO = gene2goMappings # custom mapping we made
-)
-# biological process
-Nv4_go_bp <- new(
-  "topGOdata",
-  ontology = "BP",
-  allGenes = top_Nv4,
-  annot = annFUN.gene2GO,
-  geneSel = topgo_filter,
-  gene2GO = gene2goMappings
-)
-# cellular component
-Nv4_go_cc <- new(
-  "topGOdata",
-  ontology = "CC",
-  allGenes = top_Nv4,
-  annot = annFUN.gene2GO,
-  geneSel = topgo_filter,
-  gene2GO = gene2goMappings
-)
+bio_process <- function(top_vector) {
+  top_go_object <- new(
+    "topGOdata",
+    ontology = "BP",
+    allGenes = top_vector,
+    annot = annFUN.gene2GO,
+    geneSel = topgo_filter,
+    gene2GO = gene2goMappings
+  )
+  return(top_go_object)
+}
+```
+
+# Making our go data objects
+
+```{r, echo=FALSE,message=FALSE}
+bp_24hvc <- bio_process(top_24hvc)
+bp_48hvc <- bio_process(top_48hvc)
+bp_4vc <- bio_process(top_14vc)
+bp_7vc <- bio_process(top_7vc)
+bp_14vc <- bio_process(top_14vc)
+bp_21vc <- bio_process(top_21vc)
+bp_nodvc <- bio_process(top_nodvc)
+```
+
+# Enrichment functions
+
+```{r}
+elim_fisher <- function(go_data_object) {
+  fisher_result <- runTest(go_data_object, algorithm = "elim", statistic = "fisher")
+  return(fisher_result)
+}
 ```
 
 # Running enrichment tests
 
 ```{r, message=FALSE, echo=FALSE}
-fisher_Nv4_mf <- runTest(Nv4_go_mf, algorithm = "elim", statistic = "fisher")
-fisher_Nv4_bp <- runTest(Nv4_go_bp, algorithm = "elim", statistic = "fisher")
-fisher_Nv4_cc <- runTest(Nv4_go_cc, algorithm = "elim", statistic = "fisher")
-
-elimks_Nv4_mf <- runTest(Nv4_go_mf, algorithm = "elim", statistic = "ks")
-elimks_Nv4_bp <- runTest(Nv4_go_bp, algorithm = "elim", statistic = "ks")
-elimks_Nv4_cc <- runTest(Nv4_go_cc, algorithm = "elim", statistic = "ks")
+fish_bp24hvc <- elim_fisher(bp_24hvc)
+fish_bp48hvc <- elim_fisher(bp_48hvc)
+fish_bp4vc <- elim_fisher(bp_4vc)
+fish_bp7vc <- elim_fisher(bp_7vc)
+fish_bp14vc <- elim_fisher(bp_14vc)
+fish_bp21vc <- elim_fisher(bp_21vc)
+fish_nodvc <- elim_fisher(bp_nodvc)
 ```
 
 # Generating tables for plotting
 
 ```{r}
 # Function to generate a nicely formatted enrichment table
-get_enrich_table <- function(go_obj, fisher_result, ks_results, top_n = 10, total_genes = NULL) {
+get_enrich_table <- function(go_obj, fisher_result, top_n = 10, total_genes = NULL) {
   tab <- GenTable(go_obj,
                   classicFisher = fisher_result,
-                  elimKS = ks_results,
                   orderBy = "classicFisher", # orders results by sig p-values
                   ranksOf = "classicFisher",
                   topNodes = top_n) %>%
@@ -470,9 +517,13 @@ get_enrich_table <- function(go_obj, fisher_result, ks_results, top_n = 10, tota
 # Tables
 
 ```{r}
-tab_Nv4_mf <- get_enrich_table(Nv4_go_mf, fisher_Nv4_mf, elimks_Nv4_mf)
-tab_Nv4_bp <- get_enrich_table(Nv4_go_bp, fisher_Nv4_bp, elimks_Nv4_bp)
-tab_Nv4_cc <- get_enrich_table(Nv4_go_cc, fisher_Nv4_cc, elimks_Nv4_cc)
+tab_bp24hvc <- get_enrich_table(bp_24hvc, fish_bp24hvc)
+tab_bp48hvc <-get_enrich_table(bp_48hvc, fish_bp48hvc)
+tab_bp4vc <- get_enrich_table(bp_4vc, fish_bp4vc)
+tab_bp7vc <- get_enrich_table(bp_7vc, fish_bp7vc)
+tab_bp14vc <- get_enrich_table(bp_14vc, fish_bp14vc)
+tab_bp21vc <- get_enrich_table(bp_21vc, fish_bp21vc)
+tab_bpnodvc <- get_enrich_table(bp_nodvc, fish_nodvc)
 ```
 
 # Plotting function
@@ -511,12 +562,181 @@ plot_enrich_bar <- function(enrich_tab, title) {
 # Go term plots
 
 ```{r}
-mf_Nv4 <- plot_enrich_bar(tab_Nv4_mf, "Nods MF")
-bp_Nv4 <- plot_enrich_bar(tab_Nv4_bp, "Nods Bp")
-cc_Nv4 <- plot_enrich_bar(tab_Nv4_cc, "Nods Cc")
+enrich_bp24hvc <- plot_enrich_bar(tab_bp24hvc, "24H BP")
+enrich_bp48hvc <- plot_enrich_bar(tab_bp48hvc, "48H BP")
+enrich_bp4vc <- plot_enrich_bar(tab_bp4vc, "4 Day BP")
+enrich_bp7vc <- plot_enrich_bar(tab_bp7vc, "7 Day BP")
+enrich_bp14vc <- plot_enrich_bar(tab_bp14vc, "14 Day BP")
+enrich_bp21vc <- plot_enrich_bar(tab_bp21vc, "21 Day BP")
+enrich_bpnodvc <- plot_enrich_bar(tab_bpnodvc, "Nodule BP")
+```
 
-mf_Nv4
-bp_Nv4
-cc_Nv4
+# Plot to markdown
+
+```{r}
+enrich_bp24hvc
+enrich_bp48hvc
+enrich_bp4vc
+enrich_bp7vc
+enrich_bp14vc
+enrich_bp21vc
+enrich_bpnodvc
+```
+
+# Gonna try clusterprofiler as well, Prepping term to gene table
+
+```{r}
+go_tab_cluster <- go_terms %>%
+  separate_rows(GOs, sep = ",") %>%
+  mutate(gene = gsub("\\..*", "", query)) %>%
+  select(GOs, gene) %>%
+  distinct() %>%
+  drop_na()
+colnames(go_tab_cluster) <- c("term", "gene")
+```
+
+# Prepping term to name table
+
+```{r}
+ontology <- get_ontology(file = "go.obo",
+                         propagate_relationships = "is_a",
+                         extract_tags = "everything",
+                         merge_equivalent_terms = TRUE)
+
+go_term_clust <- go_tab_cluster %>%
+    mutate(name = ontology$name[term]) %>%
+    select(c(term, name)) %>%
+    distinct() %>%
+    drop_na() %>%
+    filter(!grepl("obsolete", name))
+
+go_tab_cluster <- go_tab_cluster %>%
+    filter(term %in% go_term_clust$term)
+```
+
+# Creating background genes and term mapping files
+
+```{r}
+background_genes <- cleaned_data %>%
+  dplyr::select(Geneid) %>%
+  unlist() %>%
+  as.vector()
+
+write_tsv(x = go_tab_cluster, file = "term2gene_GO.tsv")
+write_tsv(x =go_term_clust, file = "term2name_GO.tsv")
+```
+
+# Filter function for ORA
+
+```{r}
+interesting_gene_filter <- function(df) {
+  interesting_set <- df %>%
+    filter(!is.na(log2FoldChange), !is.na(padj)) %>%
+    filter(abs(log2FoldChange) > 1.5 & padj <= 0.05) %>%
+    dplyr::select(gene_ids) %>%
+    unlist() %>%
+    as.vector()
+  return(interesting_set)
+}
+```
+
+# Filtering for set of interest
+
+```{r}
+interest_24hvc <- interesting_gene_filter(res24hvc_df)
+interest_48hvc <- interesting_gene_filter(res48hvc_df)
+interest_4dvc <- interesting_gene_filter(res4dvc_df)
+interest_7dvc <- interesting_gene_filter(res7dvc_df)
+interest_14dvc <- interesting_gene_filter(res14dvc_df)
+interest_21dvc <- interesting_gene_filter(res21dvc_df)
+interest_nodsvc <- interesting_gene_filter(resnodvc_df)
+```
+
+# Loading in mappings
+
+```{r, echo=FALSE, message=FALSE}
+term2name <- read_tsv("term2name_GO.tsv")
+term2gene <- read_tsv("term2gene_GO.tsv")
+```
+
+# Enrichment function
+
+```{r}
+enrichment <- function(interesting_genes) {
+  enrich_object <- enricher(
+    interesting_genes,
+    TERM2GENE = term2gene,
+    TERM2NAME = term2name,
+    pvalueCutoff = 0.05,
+    pAdjustMethod = "BH",
+    universe = background_genes,
+    qvalueCutoff = 0.05
+  )
+}
+```
+
+# Running our enrichment test
+
+```{r}
+encriched_24hvc <- enrichment(interest_24hvc)
+enriched_48hvc <- enrichment(interest_48hvc)
+enriched_4dvc <- enrichment(interest_4dvc)
+enriched_7dvc <- enrichment(interest_7dvc)
+enriched_14dvc <- enrichment(interest_14dvc)
+enriched_21dvc <- enrichment(interest_21dvc)
+enriched_nodvc <- enrichment(interest_nodsvc)
+```
+
+# Plotting func
+
+```{r}
+cluster_plot_func <- function(enrich_result, title) {
+    p <- dotplot(enrich_result,
+                 x= "geneRatio", # Options: GeneRatio, BgRatio, pvalue, p.adjust, qvalue
+                 color="p.adjust",
+                 orderBy = "x", # Options: GeneRatio, BgRatio, pvalue, p.adjust, qvalue
+                 showCategory=10,
+                 font.size=8) +
+        ggtitle(title)
+  return(p)
+}
+```
+
+#Plotting results
+
+```{r}
+enriched_p24hvc <- cluster_plot_func(encriched_24hvc, "Enriched GO Terms 24H")
+enriched_p48hvc <- cluster_plot_func(enriched_48hvc, "Enriched GO Terms 48H")
+enriched_p4dvc <- cluster_plot_func(enriched_4dvc, "Enriched GO Terms 4 Days")
+enriched_p7dvc <- cluster_plot_func(enriched_7dvc, "Enriched GO Terms 7 Days")
+enriched_p14dvc <- cluster_plot_func(enriched_14dvc, "Enriched GO Terms 14 Days")
+enriched_p21dvc <- cluster_plot_func(enriched_21dvc, "Enriched GO Terms 21 Days")
+enriched_pnodvc <- cluster_plot_func(enriched_nodvc, "Enriched GO Terms Nodules")
+```
+
+# Plot to markdown
+
+```{r}
+enriched_p24hvc
+enriched_p48hvc
+enriched_p4dvc
+enriched_p7dvc
+enriched_p14dvc
+enriched_p21dvc
+enriched_pnodvc
+```
+
+# Load in annotations
+
+```{r, echo=FALSE,message=FALSE}
+diamond_hits <- read_tsv("diamond_dups_removed.tsv")
+```
+
+# Add annotations to results frames, function
+
+```{r}
+diamond_add <- function(resdf, diamond_df) {
+  resdf <- merge(resdf, diamond_df[,c("query", "GOs")], by.x = "gene_ids", by.y = "query", all.x = TRUE)
+}
 ```
 

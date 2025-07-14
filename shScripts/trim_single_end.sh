@@ -12,8 +12,10 @@
 # activates genomics conda environemnt
 source activate genomics
 
-date #prints start time of script
-input_directory=$1 #provide input directory
+#prints start time of script
+date 
+#provide input directory
+input_directory=$1 
 output_directory=$2 #provide output directory
 adapters=$3 #provide path to adapter file
 
