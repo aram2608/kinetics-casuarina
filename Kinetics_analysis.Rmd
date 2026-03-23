@@ -9,12 +9,6 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
-
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document.
-
 ```{r}
 # Downloading neccessary libraries
 # install bioconductor packages
@@ -24,10 +18,6 @@ if (!requireNamespace("DESeq2", quietly = TRUE))
   BiocManager::install("DESeq2")
 if (!requireNamespace("topGO", quietly = TRUE))
   BiocManager::install("topGO")
-if (!requireNamespace("clusterProfiler", quietly = TRUE))
-  BiocManager::install("clusterProfiler")
-if (!requireNamespace("KEGGREST", quietly = TRUE))
-  BiocManager::install("KEGGREST")
 # install CRAN packages
 if (!requireNamespace("ggVennDiagram", quietly = TRUE))
   install.packages("ggVennDiagram")
@@ -39,14 +29,8 @@ if (!requireNamespace("pheatmap", quietly = TRUE))
   install.packages("pheatmap")
 if (!requireNamespace("tidyr", quietly = TRUE))
   install.packages("tidyr")
-if (!requireNamespace("enrichplot", quietly = TRUE))
-  install.packages("enrichplot")
 if (!requireNamespace("ggrepel", quietly = TRUE))
   install.packages("ggrepel")
-if (requireNamespace("progress", quietly = ))
-  install.packages("progress")
-if (requireNamespace("ontologyIndex", quietly = TRUE))
-  install.packages("ontologyIndex")
 if (requireNamespace("readr", quietly = TRUE))
   install.packages("readr")
 ```
@@ -59,14 +43,9 @@ library("ggVennDiagram")
 library("dplyr")
 library("pheatmap")
 library("topGO")
-library("clusterProfiler")
 library("tidyr")
-library("enrichplot")
 library("topGO")
 library("ggrepel")
-library("KEGGREST")
-library("progress")
-library("ontologyIndex")
 library("readr")
 ```
 
@@ -85,7 +64,9 @@ rownames(counts) <- cleaned_data[, 1] # sets row names using first column
 
 ```{r}
 coldata <- data.frame(
-  ID = colnames(counts), # extracts our column names for ID column
+  # extracts our column names for ID column
+  ID = colnames(counts),
+  # We created a column for each treatment type per replicate
   Treatment = c(
     "Nodule",
     "Nodule",
@@ -134,6 +115,7 @@ dds <- DESeq(dds)
 # making our results dataframe
 res <- results(dds)
 ```
+
 # sanity check to make sure everything is kosher
 
 ```{r}
@@ -146,7 +128,8 @@ summary(res)
 # prints pairwise comparisons,useful double check
 resultsNames(dds)
 ```
-# PCA to guage variance and if samples are similar
+
+# PCA to gauge variance and if samples are similar
 
 ```{r}
 # making an output directory
@@ -218,6 +201,7 @@ ggsave("DEG_results/all_DEGs_venn.png",
 # plot to markdown
 fixed_venn
 ```
+
 # Pairwise comparison extraction
 
 ```{r}
@@ -310,7 +294,6 @@ volcano_plotter <- function(df, title) {
 }
 ```
 
-
 # Volcano plots
 
 ```{r}
@@ -366,7 +349,6 @@ res14dvc_df <- gene_id_grabber(res14dvc_df)
 res21dvc_df <- gene_id_grabber(res21dvc_df)
 resnodvc_df <- gene_id_grabber(resnodvc_df)
 ```
-
 
 # Creating GO term universe
 
@@ -507,8 +489,8 @@ get_enrich_table <- function(go_obj, fisher_result, top_n = 10, total_genes = NU
       Count = as.numeric(Significant),
       GeneRatio = if (!is.null(total_genes)) Count / total_genes else NA_real_
     ) %>%
-    select(Term, Count, GeneRatio, pvalue, everything()) %>%
-    arrange(pvalue)
+    dplyr::select(Term, Count, GeneRatio, pvalue, everything()) %>%
+    dplyr::arrange(pvalue)
 
   return(tab)
 }
@@ -583,149 +565,6 @@ enrich_bp21vc
 enrich_bpnodvc
 ```
 
-# Gonna try clusterprofiler as well, Prepping term to gene table
-
-```{r}
-go_tab_cluster <- go_terms %>%
-  separate_rows(GOs, sep = ",") %>%
-  mutate(gene = gsub("\\..*", "", query)) %>%
-  select(GOs, gene) %>%
-  distinct() %>%
-  drop_na()
-colnames(go_tab_cluster) <- c("term", "gene")
-```
-
-# Prepping term to name table
-
-```{r}
-ontology <- get_ontology(file = "go.obo",
-                         propagate_relationships = "is_a",
-                         extract_tags = "everything",
-                         merge_equivalent_terms = TRUE)
-
-go_term_clust <- go_tab_cluster %>%
-    mutate(name = ontology$name[term]) %>%
-    select(c(term, name)) %>%
-    distinct() %>%
-    drop_na() %>%
-    filter(!grepl("obsolete", name))
-
-go_tab_cluster <- go_tab_cluster %>%
-    filter(term %in% go_term_clust$term)
-```
-
-# Creating background genes and term mapping files
-
-```{r}
-background_genes <- cleaned_data %>%
-  dplyr::select(Geneid) %>%
-  unlist() %>%
-  as.vector()
-
-write_tsv(x = go_tab_cluster, file = "term2gene_GO.tsv")
-write_tsv(x =go_term_clust, file = "term2name_GO.tsv")
-```
-
-# Filter function for ORA
-
-```{r}
-interesting_gene_filter <- function(df) {
-  interesting_set <- df %>%
-    filter(!is.na(log2FoldChange), !is.na(padj)) %>%
-    filter(abs(log2FoldChange) > 1.5 & padj <= 0.05) %>%
-    dplyr::select(gene_ids) %>%
-    unlist() %>%
-    as.vector()
-  return(interesting_set)
-}
-```
-
-# Filtering for set of interest
-
-```{r}
-interest_24hvc <- interesting_gene_filter(res24hvc_df)
-interest_48hvc <- interesting_gene_filter(res48hvc_df)
-interest_4dvc <- interesting_gene_filter(res4dvc_df)
-interest_7dvc <- interesting_gene_filter(res7dvc_df)
-interest_14dvc <- interesting_gene_filter(res14dvc_df)
-interest_21dvc <- interesting_gene_filter(res21dvc_df)
-interest_nodsvc <- interesting_gene_filter(resnodvc_df)
-```
-
-# Loading in mappings
-
-```{r, echo=FALSE, message=FALSE}
-term2name <- read_tsv("term2name_GO.tsv")
-term2gene <- read_tsv("term2gene_GO.tsv")
-```
-
-# Enrichment function
-
-```{r}
-enrichment <- function(interesting_genes) {
-  enrich_object <- enricher(
-    interesting_genes,
-    TERM2GENE = term2gene,
-    TERM2NAME = term2name,
-    pvalueCutoff = 0.05,
-    pAdjustMethod = "BH",
-    universe = background_genes,
-    qvalueCutoff = 0.05
-  )
-}
-```
-
-# Running our enrichment test
-
-```{r}
-encriched_24hvc <- enrichment(interest_24hvc)
-enriched_48hvc <- enrichment(interest_48hvc)
-enriched_4dvc <- enrichment(interest_4dvc)
-enriched_7dvc <- enrichment(interest_7dvc)
-enriched_14dvc <- enrichment(interest_14dvc)
-enriched_21dvc <- enrichment(interest_21dvc)
-enriched_nodvc <- enrichment(interest_nodsvc)
-```
-
-# Plotting func
-
-```{r}
-cluster_plot_func <- function(enrich_result, title) {
-    p <- dotplot(enrich_result,
-                 x= "geneRatio", # Options: GeneRatio, BgRatio, pvalue, p.adjust, qvalue
-                 color="p.adjust",
-                 orderBy = "x", # Options: GeneRatio, BgRatio, pvalue, p.adjust, qvalue
-                 showCategory=10,
-                 font.size=8) +
-        ggtitle(title)
-  return(p)
-}
-```
-
-#Plotting results
-
-```{r}
-enriched_p24hvc <- cluster_plot_func(encriched_24hvc, "Enriched GO Terms 24H")
-enriched_p48hvc <- cluster_plot_func(enriched_48hvc, "Enriched GO Terms 48H")
-enriched_p4dvc <- cluster_plot_func(enriched_4dvc, "Enriched GO Terms 4 Days")
-enriched_p7dvc <- cluster_plot_func(enriched_7dvc, "Enriched GO Terms 7 Days")
-enriched_p14dvc <- cluster_plot_func(enriched_14dvc, "Enriched GO Terms 14 Days")
-enriched_p21dvc <- cluster_plot_func(enriched_21dvc, "Enriched GO Terms 21 Days")
-enriched_pnodvc <- cluster_plot_func(enriched_nodvc, "Enriched GO Terms Nodules")
-```
-
-# Plot to markdown
-
-```{r}
-enriched_p24hvc
-enriched_p48hvc
-enriched_p4dvc
-enriched_p7dvc
-enriched_p14dvc
-enriched_p21dvc
-enriched_pnodvc
-```
-
 # Load in annotations
 
 ```{r, echo=FALSE,message=FALSE}
@@ -739,4 +578,3 @@ diamond_add <- function(resdf, diamond_df) {
   resdf <- merge(resdf, diamond_df[,c("query", "GOs")], by.x = "gene_ids", by.y = "query", all.x = TRUE)
 }
 ```
-
